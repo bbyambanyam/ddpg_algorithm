@@ -1,7 +1,7 @@
+import gc
 import gym
 import numpy as np
 import matplotlib.pyplot as plt
-import gc
 from torch.autograd import Variable
 import torch
 import torch.nn.functional as F
@@ -27,11 +27,11 @@ if __name__ == "__main__":
 
     actor = models.Actor(state_dimension, action_dimension, action_max)
     target_actor = models.Actor(state_dimension, action_dimension, action_max)
-    actor_optimizer = torch.optim.Adam(actor.parameters(), 0.001)
+    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=0.001)
 
     critic = models.Critic(state_dimension, action_dimension)
     target_critic = models.Critic(state_dimension, action_dimension)
-    critic_optimizer = torch.optim.Adam(critic.parameters(), 0.001)
+    critic_optimizer = torch.optim.Adam(critic.parameters(), lr=0.001)
 
     # Target network-g huulah
 
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     reward_list = []
     average_reward_list = []
 
-    for ep in range(100):
+    for ep in range(800):
 
         # Anhnii state-g awah
 
@@ -87,29 +87,30 @@ if __name__ == "__main__":
                 # Replay buffer-d state, action, reward, new_state -g hadgalah
 
                 ram.add(state, action_with_noise, reward, new_state)
+                ep_reward += reward
 
             observation = new_observation
 
-            ep_reward += reward
+            
 
             # Replay buffer-aas 128 bagts turshalagiig random-oor awna
 
-            state, action_with_noise, reward, next_state = ram.sample_exp(128)
+            states, actions, rewards, next_states = ram.sample_exp(128)
 
-            state = Variable(torch.from_numpy(state))
-            action_with_noise = Variable(torch.from_numpy(action_with_noise))
-            reward = Variable(torch.from_numpy(reward))
-            next_state = Variable(torch.from_numpy(next_state))
+            states = Variable(torch.from_numpy(states))
+            actions = Variable(torch.from_numpy(actions))
+            rewards = Variable(torch.from_numpy(rewards))
+            next_states = Variable(torch.from_numpy(next_states))
 
             # Critic network-g surgah
 
-            predicted_action = target_actor.forward(next_state).detach()
-            next_val = torch.squeeze(target_critic.forward(next_state, predicted_action)).detach()
-            y_expected = reward + 0.99*next_val
-            y_predicted = torch.squeeze(critic.forward(state, action_with_noise))
+            predicted_action = target_actor.forward(next_states).detach()
+            next_val = torch.squeeze(target_critic.forward(next_states, predicted_action).detach())
+            y_expected = rewards + 0.99*next_val
+            y_predicted = torch.squeeze(critic.forward(states, actions))
 
             # Critic network-g shinechleh, critic loss-g tootsooloh
-
+            
             critic_loss = F.smooth_l1_loss(y_predicted, y_expected)
             critic_optimizer.zero_grad()
             critic_loss.backward()
@@ -117,8 +118,8 @@ if __name__ == "__main__":
 
             # Actor network-g surgah
 
-            predicted_action = actor.forward(state)
-            actor_loss = -1*torch.sum(critic.forward(state, predicted_action))
+            predicted_action = actor.forward(states)
+            actor_loss = -1*torch.sum(critic.forward(states, predicted_action))
             actor_optimizer.zero_grad()
             actor_loss.backward()
             actor_optimizer.step()
@@ -134,7 +135,7 @@ if __name__ == "__main__":
             if done:
                 break
         
-        # reward-g hadgalj awn
+        # reward-g hadgalj awna
 
         reward_list.append(ep_reward)
         average_reward = np.mean(reward_list[-40:])

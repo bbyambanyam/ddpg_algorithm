@@ -21,6 +21,7 @@ class ReplayBuffer:
         batch = []
         size = min(size, len(self.buffer))
         batch = random.sample(self.buffer, size)
+        
         states = np.float32([arr[0] for arr in batch])
         actions = np.float32([arr[1] for arr in batch])
         rewards = np.float32([arr[2] for arr in batch])

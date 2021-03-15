@@ -4,9 +4,9 @@ import torch.nn.functional as F
 import numpy as np
 
 def fanin_init(size, fanin=None):
-	fanin = fanin or size[0]
-	v = 1. / np.sqrt(fanin)
-	return torch.Tensor(size).uniform_(-v, v)
+    fanin = fanin or size[0]
+    v = 1. / np.sqrt(fanin)
+    return torch.Tensor(size).uniform_(-v, v)
 
 class Actor(nn.Module):
     def __init__(self, state_dimension, action_dimension, action_max):
@@ -16,15 +16,17 @@ class Actor(nn.Module):
         self.action_dimension = action_dimension
         self.action_max = action_max
 
-        # 3 shirheg dawharga uusgene
+        # 3 layer uusgene
 
-        self.fc1 = nn.Linear(state_dimension, 400)
-        self.fc2 = nn.Linear(400, 300)
-        self.fc3 = nn.Linear(300, action_dimension)
+        self.fc1 = nn.Linear(state_dimension, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 64)
+        self.fc4 = nn.Linear(64, action_dimension)
         
         self.fc1.weight.data = fanin_init(self.fc1.weight.data.size())
         self.fc2.weight.data = fanin_init(self.fc2.weight.data.size())
-        self.fc3.weight.data.uniform_(-0.003, 0.003)
+        self.fc3.weight.data = fanin_init(self.fc3.weight.data.size())
+        self.fc4.weight.data.uniform_(-0.003, 0.003)
 
     def forward(self, state):
         output = self.fc1(state)
@@ -34,9 +36,12 @@ class Actor(nn.Module):
         output = F.relu(output)
 
         output = self.fc3(output)
-        output = torch.tanh(output)
+        output = F.relu(output)
 
-        action = output * self.action_max
+        action = self.fc4(output)
+        action = F.tanh(action)
+
+        action = action * self.action_max
 
         # action butsaana
 
@@ -51,11 +56,11 @@ class Critic(nn.Module):
         
         # 4 layer uusgene
 
-        self.fcs1 = nn.Linear(state_dimension, 400)
-        self.fcs2 = nn.Linear(400, 300)
-        self.fca1 = nn.Linear(action_dimension, 300)
-        self.fc2 = nn.Linear(600, 300)
-        self.fc3 = nn.Linear(300, 1)
+        self.fcs1 = nn.Linear(state_dimension, 256)
+        self.fcs2 = nn.Linear(256, 128)
+        self.fca1 = nn.Linear(action_dimension, 128)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 1)
 
         self.fcs1.weight.data = fanin_init(self.fcs1.weight.data.size())
         self.fcs2.weight.data = fanin_init(self.fcs2.weight.data.size())
@@ -74,11 +79,11 @@ class Critic(nn.Module):
         output = torch.cat((s2, a1), dim=1)
         output = self.fc2(output)
         output = F.relu(output)
-        output = self.fc3(output)
+        q_value = self.fc3(output)
 
         # Q value-g butsaana
 
-        return output
+        return q_value
 
 
 

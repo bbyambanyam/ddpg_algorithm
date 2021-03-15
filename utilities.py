@@ -1,10 +1,9 @@
 import numpy as np
-import torch
-import shutil
 
 # Ornstein-uhlenbeck process-g noise uusgehed ashiglana
 
 #http://math.stackexchange.com/questions/1287634/implementing-ornstein-uhlenbeck-in-matlab
+
 class OrnsteinUhlenbeckActionNoise:
 
 	def __init__(self, action_dim, mu = 0, theta = 0.15, sigma = 0.2):
