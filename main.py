@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from torch.autograd import Variable
 import torch
 import torch.nn.functional as F
+import random
 
 import memory
 import models
@@ -50,7 +51,11 @@ if __name__ == "__main__":
     reward_list = []
     average_reward_list = []
 
-    for ep in range(800):
+    # Noise uusgeh
+
+    noise = utilities.OrnsteinUhlenbeckActionNoise(action_dimension)
+
+    for ep in range(1000):
 
         # Anhnii state-g awah
 
@@ -67,13 +72,13 @@ if __name__ == "__main__":
             tmp_state = Variable(torch.from_numpy(state))
             action_without_noise = actor.forward(tmp_state).detach()
 
-            # Noise uusgeh
-
-            noise = utilities.OrnsteinUhlenbeckActionNoise(action_dimension)
-
             # Action-d noise nemeh
 
             action_with_noise = action_without_noise.data.numpy() + (noise.sample() * action_max)
+
+            #New (muu baiwal -0.4,0.4)
+
+            #action_with_noise = action_without_noise.data.numpy() + (random.uniform(-0.2, 0.2) * action_max)
 
             # Action-g hiij shine state, reward awah
 
