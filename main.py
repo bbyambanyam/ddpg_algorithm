@@ -28,11 +28,11 @@ if __name__ == "__main__":
 
     actor = models.Actor(state_dimension, action_dimension, action_max)
     target_actor = models.Actor(state_dimension, action_dimension, action_max)
-    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=0.001)
+    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=0.0001)
 
     critic = models.Critic(state_dimension, action_dimension)
     target_critic = models.Critic(state_dimension, action_dimension)
-    critic_optimizer = torch.optim.Adam(critic.parameters(), lr=0.001)
+    critic_optimizer = torch.optim.Adam(critic.parameters(), lr=0.0001)
 
     # Target network-g huulah
 
@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
     noise = utilities.OrnsteinUhlenbeckActionNoise(action_dimension)
 
-    for ep in range(1000):
+    for ep in range(10000):
 
         # Anhnii state-g awah
 
@@ -63,7 +63,7 @@ if __name__ == "__main__":
 
         ep_reward = 0
 
-        for step in range(1000):
+        for step in range(env._max_episode_steps):
             env.render()
             state = np.float32(observation)
 
@@ -72,11 +72,11 @@ if __name__ == "__main__":
             tmp_state = Variable(torch.from_numpy(state))
             action_without_noise = actor.forward(tmp_state).detach()
 
-            # Action-d noise nemeh
+            # Action-d noise nemeh (Correleted)
 
             action_with_noise = action_without_noise.data.numpy() + (noise.sample() * action_max)
 
-            #New (muu baiwal -0.4,0.4)
+            # Action-d noise nemeh (Uncorreleted)
 
             #action_with_noise = action_without_noise.data.numpy() + (random.uniform(-0.2, 0.2) * action_max)
 
@@ -155,5 +155,3 @@ if __name__ == "__main__":
     plt.xlabel("Episode")
     plt.ylabel("Average Episode Reward")
     plt.show()
-
-

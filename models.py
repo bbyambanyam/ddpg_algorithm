@@ -84,6 +84,3 @@ class Critic(nn.Module):
         # Q value-g butsaana
 
         return q_value
-
-
-
