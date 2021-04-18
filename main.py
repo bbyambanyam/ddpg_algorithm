@@ -1,11 +1,12 @@
 import gc
+import random
 import gym
 import numpy as np
 import matplotlib.pyplot as plt
 from torch.autograd import Variable
 import torch
 import torch.nn.functional as F
-import random
+
 
 import memory
 import models
@@ -51,11 +52,21 @@ if __name__ == "__main__":
     reward_list = []
     average_reward_list = []
 
+    #Ymar turliin shuugian nemehee oruulj ugnu
+    NOISE_TYPE = "OUBaseline"
+
     # Noise uusgeh
 
-    noise = utilities.OrnsteinUhlenbeckActionNoise(action_dimension)
+    if NOISE_TYPE == "OU":
+        noise = utilities.OrnsteinUhlenbeckActionNoise(action_dimension)
+    elif NOISE_TYPE == "OUBaseline":
+        noise = utilities.OrnsteinUhlenbeckActionNoiseBaseline(mu=np.zeros(action_dimension), sigma=float(0.2) * np.ones(action_dimension))
+    elif NOISE_TYPE == "Parameter":
+        pass
+        
+    print("Noise type: ", NOISE_TYPE)
 
-    for ep in range(10000):
+    for ep in range(1200):
 
         # Anhnii state-g awah
 
@@ -72,14 +83,15 @@ if __name__ == "__main__":
             tmp_state = Variable(torch.from_numpy(state))
             action_without_noise = actor.forward(tmp_state).detach()
 
-            # Action-d noise nemeh (Correleted)
-
-            action_with_noise = action_without_noise.data.numpy() + (noise.sample() * action_max)
-
-            # Action-d noise nemeh (Uncorreleted)
-
-            #action_with_noise = action_without_noise.data.numpy() + (random.uniform(-0.2, 0.2) * action_max)
-
+            if NOISE_TYPE == "OU":
+                action_with_noise = action_without_noise.data.numpy() + (noise.sample() * action_max)
+            elif NOISE_TYPE == "OUBaseline":
+                action_with_noise = action_without_noise.data.numpy() + noise()
+            elif NOISE_TYPE == "Parameter":
+                pass
+            elif NOISE_TYPE == "Uncorrelated":
+                action_with_noise = action_without_noise.data.numpy() + (np.random.normal(-0.2, 0.2) * action_max)
+                
             # Action-g hiij shine state, reward awah
 
             new_observation, reward, done, info = env.step(action_with_noise)
@@ -95,8 +107,6 @@ if __name__ == "__main__":
                 ep_reward += reward
 
             observation = new_observation
-
-            
 
             # Replay buffer-aas 128 bagts turshalagiig random-oor awna
 
@@ -150,6 +160,8 @@ if __name__ == "__main__":
         gc.collect()
         
     # Reward-g durslen haruulah
+
+    print("Reward max: ", max(average_reward_list))
 
     plt.plot(average_reward_list)
     plt.xlabel("Episode")
