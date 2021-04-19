@@ -46,3 +46,22 @@ class OrnsteinUhlenbeckActionNoiseBaseline(ActionNoise):
 
     def __repr__(self):
         return 'OrnsteinUhlenbeckActionNoise(mu={}, sigma={})'.format(self.mu, self.sigma)
+
+
+if __name__ == '__main__':
+    ou = OrnsteinUhlenbeckActionNoise(1)
+    ou_baseline = OrnsteinUhlenbeckActionNoiseBaseline(mu=np.zeros(1), sigma=float(0.2) * np.ones(1))
+    
+    states = []
+    states2 = []
+    
+    for i in range(1000):
+        states.append(ou.sample())
+        states2.append(ou_baseline())
+	
+    import matplotlib.pyplot as plt
+    
+    plt.plot(states, label = "OU")
+    plt.plot(states2, label = "OU Baseline")
+    plt.legend()
+    plt.show()
