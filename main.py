@@ -14,6 +14,11 @@ import utilities
 
 
 if __name__ == "__main__":
+
+    ACTOR_LEARNING_RATE = 0.0001
+    CRITIC_LEARNING_RATE = 0.001
+    MAX_EPISODE = 1200
+    NOISE_TYPE = "Parameter" #OU, OUBaseline, Parameter, Uncorrelated
     # Orchin beldeh
     env = gym.make('BipedalWalker-v3')
 
@@ -25,15 +30,17 @@ if __name__ == "__main__":
     print("Action dimension: {}" .format(action_dimension))
     print("Action max: {}" .format(action_max))
 
+    load_models = False
+
     # Actor network, critic network uusgeh
 
     actor = models.Actor(state_dimension, action_dimension, action_max)
     target_actor = models.Actor(state_dimension, action_dimension, action_max)
-    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=0.0001)
+    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=ACTOR_LEARNING_RATE)
 
     critic = models.Critic(state_dimension, action_dimension)
     target_critic = models.Critic(state_dimension, action_dimension)
-    critic_optimizer = torch.optim.Adam(critic.parameters(), lr=0.0001)
+    critic_optimizer = torch.optim.Adam(critic.parameters(), lr=CRITIC_LEARNING_RATE)
 
     # Target network-g huulah
 
@@ -42,6 +49,20 @@ if __name__ == "__main__":
 
     for target_param, param in zip(target_critic.parameters(), critic.parameters()):
         target_param.data.copy_(param.data)
+
+    # Hadgalsan modeliig ashiglah
+
+    if load_models:
+        actor.load_state_dict(torch.load('./Models/' + str(0) + '_actor.pt'))
+        critic.load_state_dict(torch.load('./Models/' + str(0) + '_critic.pt'))
+
+        for target_param, param in zip(target_actor.parameters(), actor.parameters()):
+            target_param.data.copy_(param.data)
+
+        for target_param, param in zip(target_critic.parameters(), critic.parameters()):
+            target_param.data.copy_(param.data)
+
+        print("Models loaded!")
 
     # Replay buffer uusgeh
 
@@ -52,9 +73,6 @@ if __name__ == "__main__":
     reward_list = []
     average_reward_list = []
 
-    #Ymar turliin shuugian nemehee oruulj ugnu
-    NOISE_TYPE = "OUBaseline"
-
     # Noise uusgeh
 
     if NOISE_TYPE == "OU":
@@ -62,17 +80,37 @@ if __name__ == "__main__":
     elif NOISE_TYPE == "OUBaseline":
         noise = utilities.OrnsteinUhlenbeckActionNoiseBaseline(mu=np.zeros(action_dimension), sigma=float(0.2) * np.ones(action_dimension))
     elif NOISE_TYPE == "Parameter":
-        pass
+        #Parameter noise-d zoriulsan actor
+        actor_copy = models.Actor(state_dimension, action_dimension, action_max)
+
+        #Parameter noise
+        parameter_noise = utilities.AdaptiveParamNoiseSpec(initial_stddev=0.05,desired_action_stddev=0.3, adaptation_coefficient=1.05)
+        noise = utilities.OrnsteinUhlenbeckActionNoise(action_dimension)
         
     print("Noise type: ", NOISE_TYPE)
 
-    for ep in range(1200):
+    for ep in range(MAX_EPISODE):
 
         # Anhnii state-g awah
 
         observation = env.reset()
 
         ep_reward = 0
+        step_cntr = 0
+
+        if NOISE_TYPE == "Parameter":
+            #Actor-g actor_copy-d huulah
+
+            for target_param, param in zip(actor_copy.parameters(), actor.parameters()):
+                target_param.data.copy_(param.data)
+
+            # Parameter noise-iig neural suljeen deer nemeh
+
+            parameters = actor_copy.state_dict()
+            for name in parameters:
+                parameter = parameters[name]
+                rand_number = torch.randn(parameter.shape)
+                parameter = parameter + rand_number * parameter_noise.current_stddev
 
         for step in range(env._max_episode_steps):
             env.render()
@@ -84,17 +122,24 @@ if __name__ == "__main__":
             action_without_noise = actor.forward(tmp_state).detach()
 
             if NOISE_TYPE == "OU":
-                action_with_noise = action_without_noise.data.numpy() + (noise.sample() * action_max)
+                #OU processiin noisetoi action
+                action = action_without_noise.data.numpy() + (noise.sample() * action_max)
             elif NOISE_TYPE == "OUBaseline":
-                action_with_noise = action_without_noise.data.numpy() + noise()
+                #OU Baseline noisetoi action
+                action = action_without_noise.data.numpy() + noise()
             elif NOISE_TYPE == "Parameter":
-                pass
+                action_with_parameter_noise = actor_copy.forward(tmp_state).detach()
+                #Parameter noisetoi action
+                action = action_with_parameter_noise.numpy() + (noise.sample() * action_max)
             elif NOISE_TYPE == "Uncorrelated":
-                action_with_noise = action_without_noise.data.numpy() + (np.random.normal(-0.2, 0.2) * action_max)
+                #[-0.2, 0.2] random noisetoi action
+                action = action_without_noise.data.numpy() + (np.random.uniform(-0.2,0.2) * action_max)
+            else:
+                raise RuntimeError('Buruu turliin noise: "{}"'.format(NOISE_TYPE)) 
                 
             # Action-g hiij shine state, reward awah
 
-            new_observation, reward, done, info = env.step(action_with_noise)
+            new_observation, reward, done, info = env.step(action)
 
             if done:
                 new_state = None
@@ -103,7 +148,7 @@ if __name__ == "__main__":
 
                 # Replay buffer-d state, action, reward, new_state -g hadgalah
 
-                ram.add(state, action_with_noise, reward, new_state)
+                ram.add(state, action, reward, new_state)
                 ep_reward += reward
 
             observation = new_observation
@@ -149,6 +194,41 @@ if __name__ == "__main__":
             
             if done:
                 break
+
+            step_cntr += 1
+
+        if NOISE_TYPE == "Parameter":
+            #Noisetoi actor deer hiigdsen data-g list-d hadgalj awaad suuliin episode-d hiigdsen stepiin toogoor datagaa awna
+            
+            noise_data_list = list(ram.buffer)
+            noise_data_list = np.array(noise_data_list[-step_cntr:])
+
+            actor_copy_state, actor_copy_action, _, _ = zip(*noise_data_list)
+
+            #Noisetoi actoriin action
+            actor_copy_actions = np.array(actor_copy_action)
+
+            #Engiin actoriin action
+
+            actor_actions = []
+            for state in np.array(actor_copy_state):
+                state = Variable(torch.from_numpy(state))
+                action = actor.forward(state).detach().numpy()
+                actor_actions.append(action)
+
+            #Distance tootsoh
+            diff_actions = actor_copy_actions - actor_actions
+            mean_diff_actions = np.mean(np.square(diff_actions),axis=0)
+            distance = math.sqrt(np.mean(mean_diff_actions))
+
+            #Sigma-g update hiih
+            parameter_noise.adapt(distance)
+
+        #Model-iig hadgalah
+        if ep % 100 == 0:
+            torch.save(target_actor.state_dict(), './Models/' + str(ep) + '_actor.pt')
+            torch.save(target_critic.state_dict(), './Models/' + str(ep) + '_critic.pt')
+            print("Target actor, critic models saved")
         
         # reward-g hadgalj awna
 
@@ -163,7 +243,8 @@ if __name__ == "__main__":
 
     print("Reward max: ", max(average_reward_list))
 
-    plt.plot(average_reward_list)
+    plt.plot(average_reward_list, label = NOISE_TYPE)
+    plt.legend()
     plt.xlabel("Episode")
     plt.ylabel("Average Episode Reward")
     plt.show()

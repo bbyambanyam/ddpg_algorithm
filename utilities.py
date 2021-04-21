@@ -1,6 +1,6 @@
 import numpy as np
 
-#Ornstein-uhlenbeck process-g noise uusgehed ashiglana
+#Ornstein-uhlenbeck process-g correlated noise uusgehed ashiglana
 
 #http://math.stackexchange.com/questions/1287634/implementing-ornstein-uhlenbeck-in-matlab
 
@@ -47,6 +47,31 @@ class OrnsteinUhlenbeckActionNoiseBaseline(ActionNoise):
     def __repr__(self):
         return 'OrnsteinUhlenbeckActionNoise(mu={}, sigma={})'.format(self.mu, self.sigma)
 
+class AdaptiveParamNoiseSpec(object):
+    def __init__(self, initial_stddev=0.1, desired_action_stddev=0.2, adaptation_coefficient=1.01):
+        self.initial_stddev = initial_stddev
+        self.desired_action_stddev = desired_action_stddev
+        self.adaptation_coefficient = adaptation_coefficient
+
+        self.current_stddev = initial_stddev
+
+    def adapt(self, distance):
+        if distance > self.desired_action_stddev:
+            # Decrease stddev.
+            self.current_stddev /= self.adaptation_coefficient
+        else:
+            # Increase stddev.
+            self.current_stddev *= self.adaptation_coefficient
+
+    def get_stats(self):
+        stats = {
+            'param_noise_stddev': self.current_stddev,
+        }
+        return stats
+
+    def __repr__(self):
+        fmt = 'AdaptiveParamNoiseSpec(initial_stddev={}, desired_action_stddev={}, adaptation_coefficient={})'
+        return fmt.format(self.initial_stddev, self.desired_action_stddev, self.adaptation_coefficient)
 
 if __name__ == '__main__':
     ou = OrnsteinUhlenbeckActionNoise(1)
