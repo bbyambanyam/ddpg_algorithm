@@ -6,19 +6,22 @@ import matplotlib.pyplot as plt
 from torch.autograd import Variable
 import torch
 import torch.nn.functional as F
-
+import pickle
+import os
+import math
+import time
 
 import memory
 import models
 import utilities
 
-
 if __name__ == "__main__":
 
     ACTOR_LEARNING_RATE = 0.0001
     CRITIC_LEARNING_RATE = 0.001
-    MAX_EPISODE = 1200
-    NOISE_TYPE = "Parameter" #OU, OUBaseline, Parameter, Uncorrelated
+    MAX_EPISODE = 101
+    MAX_STEPS = 10000
+    NOISE_TYPE = "OU" #OU, OUBaseline, Parameter, Uncorrelated, NoNoise, ParameterWithOU
     # Orchin beldeh
     env = gym.make('BipedalWalker-v3')
 
@@ -68,26 +71,51 @@ if __name__ == "__main__":
 
     ram = memory.ReplayBuffer(1000000)
 
+    #Buffer-g utgaar duurgeh (hot start)
+
+    st = np.float32(env.reset())
+    print(type(st))
+    for step in range(128):
+        action = env.action_space.sample()
+        new_observation, reward, done, info = env.step(action)
+
+        # Replay buffer-d state, action, reward, new_state -g hadgalah
+
+        ram.add(st, action, reward, new_observation)
+
+        if done:
+            st = env.reset()
+        else:
+            st = new_observation
+
+    print("Initial ram size: ", len(ram.buffer))
+
     # Reward-iig hadgalah list
 
     reward_list = []
     average_reward_list = []
+    steps_reward_list = []
 
     # Noise uusgeh
 
     if NOISE_TYPE == "OU":
         noise = utilities.OrnsteinUhlenbeckActionNoise(action_dimension)
     elif NOISE_TYPE == "OUBaseline":
-        noise = utilities.OrnsteinUhlenbeckActionNoiseBaseline(mu=np.zeros(action_dimension), sigma=float(0.2) * np.ones(action_dimension))
-    elif NOISE_TYPE == "Parameter":
+        noise = utilities.OrnsteinUhlenbeckActionNoiseBaseline(mu=np.zeros(action_dimension), sigma=float(0.2))
+    elif NOISE_TYPE == "Parameter" or NOISE_TYPE == "ParameterWithOU":
         #Parameter noise-d zoriulsan actor
         actor_copy = models.Actor(state_dimension, action_dimension, action_max)
 
         #Parameter noise
         parameter_noise = utilities.AdaptiveParamNoiseSpec(initial_stddev=0.05,desired_action_stddev=0.3, adaptation_coefficient=1.05)
         noise = utilities.OrnsteinUhlenbeckActionNoise(action_dimension)
+        #noise = utilities.OrnsteinUhlenbeckActionNoiseBaseline(mu=np.zeros(action_dimension), sigma=float(0.2))
         
     print("Noise type: ", NOISE_TYPE)
+
+    start_time = time.time()
+
+    tmp_noise_type = NOISE_TYPE
 
     for ep in range(MAX_EPISODE):
 
@@ -97,6 +125,12 @@ if __name__ == "__main__":
 
         ep_reward = 0
         step_cntr = 0
+
+        #Ehnii 20 episode uncorrelated noise-toigoor ywna
+        if ep < 20:
+            NOISE_TYPE = "NoNoise"
+        else:
+            NOISE_TYPE = tmp_noise_type
 
         if NOISE_TYPE == "Parameter":
             #Actor-g actor_copy-d huulah
@@ -112,7 +146,7 @@ if __name__ == "__main__":
                 rand_number = torch.randn(parameter.shape)
                 parameter = parameter + rand_number * parameter_noise.current_stddev
 
-        for step in range(env._max_episode_steps):
+        for step in range(MAX_STEPS):
             env.render()
             state = np.float32(observation)
 
@@ -121,19 +155,26 @@ if __name__ == "__main__":
             tmp_state = Variable(torch.from_numpy(state))
             action_without_noise = actor.forward(tmp_state).detach()
 
-            if NOISE_TYPE == "OU":
+
+            if NOISE_TYPE == "NoNoise":
+                action = np.clip(action_without_noise.data.numpy(), -1., 1.)
+            elif NOISE_TYPE == "OU":
                 #OU processiin noisetoi action
-                action = action_without_noise.data.numpy() + (noise.sample() * action_max)
+                action = np.clip(action_without_noise.data.numpy() + (noise.sample() * action_max), -1., 1.)
             elif NOISE_TYPE == "OUBaseline":
                 #OU Baseline noisetoi action
-                action = action_without_noise.data.numpy() + noise()
+                action = np.clip(action_without_noise.data.numpy() + noise(), -1., 1.)
             elif NOISE_TYPE == "Parameter":
+                action = actor_copy.forward(tmp_state).detach().numpy()
+            elif NOISE_TYPE == "ParameterWithOU":
+                noise.reset()
                 action_with_parameter_noise = actor_copy.forward(tmp_state).detach()
                 #Parameter noisetoi action
-                action = action_with_parameter_noise.numpy() + (noise.sample() * action_max)
+                action = np.clip(action_with_parameter_noise.numpy() + (noise.sample() * action_max), -1., 1.)
+                #action = np.clip(action_with_parameter_noise.numpy() + noise(), -1., 1.)
             elif NOISE_TYPE == "Uncorrelated":
                 #[-0.2, 0.2] random noisetoi action
-                action = action_without_noise.data.numpy() + (np.random.uniform(-0.2,0.2) * action_max)
+                action = np.clip(action_without_noise.data.numpy() + (np.random.uniform(-0.2,0.2) * action_max), -1., 1.)
             else:
                 raise RuntimeError('Buruu turliin noise: "{}"'.format(NOISE_TYPE)) 
                 
@@ -150,6 +191,7 @@ if __name__ == "__main__":
 
                 ram.add(state, action, reward, new_state)
                 ep_reward += reward
+                steps_reward_list.append(reward)
 
             observation = new_observation
 
@@ -224,27 +266,57 @@ if __name__ == "__main__":
             #Sigma-g update hiih
             parameter_noise.adapt(distance)
 
-        #Model-iig hadgalah
-        if ep % 100 == 0:
-            torch.save(target_actor.state_dict(), './Models/' + str(ep) + '_actor.pt')
-            torch.save(target_critic.state_dict(), './Models/' + str(ep) + '_critic.pt')
-            print("Target actor, critic models saved")
-        
         # reward-g hadgalj awna
 
         reward_list.append(ep_reward)
         average_reward = np.mean(reward_list[-40:])
         print("Episode: {} Average Reward: {}" .format(ep, average_reward))
         average_reward_list.append(average_reward)
+
+        #Model-iig hadgalah
+        if ep % 100 == 0 and ep != 0:
+            folder_path = './Models_ep101_' + str(NOISE_TYPE) + '_' + str(ACTOR_LEARNING_RATE) + '_' + str(CRITIC_LEARNING_RATE)
+            if not os.path.exists(folder_path):
+                os.makedirs(folder_path)
+            
+            torch.save(target_actor.state_dict(), folder_path + '/' + str(ep) + '_actor.pt')
+            torch.save(target_critic.state_dict(), folder_path + '/' + str(ep) + '_critic.pt')
+
+            #Ram hadgalah
+            file_name = folder_path + '/' + str(ep) + '_ram.deque'
+            open_file = open(file_name, "wb")
+            pickle.dump(ram.buffer, open_file)
+            open_file.close()
+
+            #Average reward list hadgalah
+            file_name = folder_path + '/' + str(ep) + '_average_rewards.list'
+            open_file = open(file_name, "wb")
+            pickle.dump(average_reward_list, open_file)
+            open_file.close()
+
+            #Step bolgonii rewardiig hadgalah
+            file_name = folder_path + '/' + str(ep) + '_step_rewards.list'
+            open_file = open(file_name, "wb")
+            pickle.dump(steps_reward_list, open_file)
+            open_file.close()
+
+            print("Target actor, critic models saved")
         
         gc.collect()
-        
+    
+    execution_time = time.time() - start_time
+    file_name = './Models_ep101_' + str(NOISE_TYPE) + '_' + str(ACTOR_LEARNING_RATE) + '_' + str(CRITIC_LEARNING_RATE) + '/' + str(ep) + '_execution_time.sec'
+    open_file = open(file_name, "wb")
+    pickle.dump(execution_time, open_file)
+    open_file.close()
     # Reward-g durslen haruulah
 
     print("Reward max: ", max(average_reward_list))
 
-    plt.plot(average_reward_list, label = NOISE_TYPE)
-    plt.legend()
-    plt.xlabel("Episode")
-    plt.ylabel("Average Episode Reward")
-    plt.show()
+    # plt.plot(average_reward_list, label = NOISE_TYPE)
+    # plt.legend()
+    # plt.xlabel("Episode")
+    # plt.ylabel("Average Episode Reward")
+    # plt.show()
+
+    #os.system("shutdown /s /t 1")
